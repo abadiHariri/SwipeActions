@@ -121,6 +121,9 @@ public struct SwipeOptions {
 
     /// The minimum distance needed to drag to start the gesture. Should be more than 0 for best compatibility with other gestures/buttons.
     var swipeMinimumDistance = Double(2)
+    
+    /// The minimum distance needed to drag to start moving the view
+    var swipeMinimumValidDistance = Double(2)
 
     /// The style to use (`mask`, `equalWidths`, or `cascade`).
     var actionsStyle = SwipeActionStyle.mask
@@ -176,6 +179,8 @@ public struct SwipeOptions {
 
     /// Values for controlling the trigger animation.
     var offsetTriggerAnimationStiffness = Double(160), offsetTriggerAnimationDamping = Double(70)
+    /// If true, it allow swipe on side with empty action
+    var allowSwipeOnEmptySide = true
 }
 
 // MARK: - Environment
@@ -442,7 +447,10 @@ public struct SwipeView<Label, LeadingActions, TrailingActions>: View where Labe
         .highPriorityGesture( /// Add the drag gesture.
             DragGesture(minimumDistance: options.swipeMinimumDistance)
                 .updating($currentlyDragging) { value, state, transaction in
-                    state = true
+                     /// used to validate current drag
+                    ///  this will avoid issue where scrollview cancel the DragGesture
+                    state = abs(value.translation.width) >= options.swipeMinimumValidDistance
+                    
                 }
                 .onChanged(onChanged)
                 .onEnded(onEnded)
@@ -850,6 +858,8 @@ extension SwipeView {
 
 extension SwipeView {
     func onChanged(value: DragGesture.Value) {
+        guard currentlyDragging else {return}
+        
         /// Back up the value.
         latestDragGestureValueBackup = value
 
@@ -880,11 +890,15 @@ extension SwipeView {
 
         /// Apply rubber banding if an empty side is reached, or if a side is disallowed.
         if numberOfLeadingActions == 0 || disallowedSide == .leading, totalOffset > 0 {
+            guard options.allowSwipeOnEmptySide else {return}
+            
             let constrainedExceededOffset = pow(totalOffset, options.stretchRubberBandingPower)
             currentOffset = constrainedExceededOffset - savedOffset
             leadingState = nil
             trailingState = nil
         } else if numberOfTrailingActions == 0 || disallowedSide == .trailing, totalOffset < 0 {
+            guard options.allowSwipeOnEmptySide else {return}
+            
             let constrainedExceededOffset = -pow(-totalOffset, options.stretchRubberBandingPower)
             currentOffset = constrainedExceededOffset - savedOffset
             leadingState = nil
@@ -935,6 +949,7 @@ extension SwipeView {
     }
 
     func onEnded(value: DragGesture.Value) {
+        guard latestDragGestureValueBackup != nil else {return}
         latestDragGestureValueBackup = nil
         let velocity = velocity.dx / currentOffset
         end(value: value, velocity: velocity)
@@ -1127,6 +1142,14 @@ public extension SwipeView {
         view.options.swipeMinimumDistance = value
         return view
     }
+    
+    /// The minimum distance needed to drag to start moving the view, this will be used to validate current drag gestures, if the current drag is less than the value drag will be ignored
+    /// - this value if different from swipeMinimumDistance, where swipeMinimumDistance is value to trigger a gestures, this value used to validate current drag
+    func swipeMinimumValidDistance(_ value: Double) -> SwipeView {
+        var view = self
+        view.options.swipeMinimumValidDistance = value
+        return view
+    }
 
     /// The style to use (`mask`, `equalWidths`, or `cascade`).
     func swipeActionsStyle(_ value: SwipeActionStyle) -> SwipeView {
@@ -1169,7 +1192,14 @@ public extension SwipeView {
         view.options.actionWidth = value
         return view
     }
-
+    
+    /// The width for each action.
+    func allowSwipeOnEmptySide(_ value: Bool) -> SwipeView {
+        var view = self
+        view.options.allowSwipeOnEmptySide = value
+        return view
+    }
+    
     /// Spacing between actions and the label view.
     func swipeSpacing(_ value: Double) -> SwipeView {
         var view = self
